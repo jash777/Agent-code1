@@ -4,10 +4,23 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+
 def register_routes(app, iptables_manager, system_manager, app_manager):
     @app.route('/')
     async def agent_status():
-        return "<h1>Agent is running</h1>"
+        status = await agent_initializer.get_initial_status()
+        return jsonify(status)
+
+    @app.route('/reset', methods=['POST'])
+    @require_api_key
+    async def reset_agent():
+        await agent_initializer.initialize()
+        connectivity = await agent_initializer.test_connectivity()
+        if not connectivity:
+            await agent_initializer._rollback()
+            return jsonify({"error": "Reset failed connectivity test. Rolled back to previous rules."}), 500
+        return jsonify({"message": "Agent reset successfully"})
 
     @app.route('/apply-rules', methods=['POST'])
     @require_api_key
@@ -109,17 +122,48 @@ def register_routes(app, iptables_manager, system_manager, app_manager):
                 'message': 'An error occurred while retrieving installed applications',
                 'error': str(e)
             }), 500
-    @app.route('/')
-    async def agent_status():
-        status = await agent_initializer.get_initial_status()
-        return jsonify(status)
 
-    @app.route('/reset', methods=['POST'])
+
+    @app.route('/block_port', methods=['POST'])
     @require_api_key
-    async def reset_agent():
-        await agent_initializer.initialize()
-        connectivity = await agent_initializer.test_connectivity()
-        if not connectivity:
-            await agent_initializer._rollback()
-            return jsonify({"error": "Reset failed connectivity test. Rolled back to previous rules."}), 500
-        return jsonify({"message": "Agent reset successfully"})
+    async def block_port():
+        data = await request.json
+        port = data.get('port')
+        protocol = data.get('protocol', 'tcp')
+        chain = data.get('chain', 'INPUT')
+
+        if not port:
+            return jsonify({"error": "Port is required"}), 400
+
+        try:
+            port = int(port)
+        except ValueError:
+            return jsonify({"error": "Port must be an integer"}), 400
+
+        success = await iptables_manager.block_port(port, protocol, chain)
+        if success:
+            return jsonify({"message": f"Successfully blocked {protocol} port {port} on chain {chain}"}), 200
+        else:
+            return jsonify({"error": f"Failed to block {protocol} port {port} on chain {chain}"}), 500
+
+    @app.route('/allow_port', methods=['POST'])
+    @require_api_key
+    async def allow_port():
+        data = await request.json
+        port = data.get('port')
+        protocol = data.get('protocol', 'tcp')
+        chain = data.get('chain', 'INPUT')
+
+        if not port:
+            return jsonify({"error": "Port is required"}), 400
+
+        try:
+            port = int(port)
+        except ValueError:
+            return jsonify({"error": "Port must be an integer"}), 400
+
+        success = await iptables_manager.allow_port(port, protocol, chain)
+        if success:
+            return jsonify({"message": f"Successfully allowed {protocol} port {port} on chain {chain}"}), 200
+        else:
+            return jsonify({"error": f"Failed to allow {protocol} port {port} on chain {chain}"}), 500

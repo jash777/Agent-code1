@@ -42,6 +42,5 @@ async def initialize_agent():
     logger.info("Agent initialized with default rules and passed connectivity test.")
 
 
-
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=25025, debug=True)
